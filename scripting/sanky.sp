@@ -16,7 +16,7 @@ public Plugin myinfo =
 	name = "Sanky Sounds",
 	author = "xSLOW",
 	description = "Play chat sounds",
-	version = "1.0b",
+	version = "1.1",
 	url = "https://steamcommunity.com/profiles/76561193897443537"
 };
 
@@ -62,12 +62,11 @@ public void OnPluginStart()
     g_CvSankSounds_FlagToAvoidAntiSpam = CreateConVar("sm_sanksounds_flagtoavoidantispam", "z", "Access to play sank sounds (no restriction)");
     g_CvSankSounds_PlayedSound = CreateConVar("sm_sanksounds_playedsound", "20.0", "Time interval to play sounds");
 
+    g_bAlreadyPlayed = false;
     for(int iClient = 1; iClient <= MaxClients; iClient++)
     {
         if(IsClientValid(iClient))
         {
-            g_bHasSoundsOn[iClient] = false;
-            g_bAlreadyPlayed = false;
             OnClientCookiesCached(iClient);
         }
     }
@@ -80,22 +79,14 @@ public void OnPluginStart()
 public void OnMapStart()
 {
     LoadConfig();
+    g_bAlreadyPlayed = false;
     for(int iClient = 1; iClient <= MaxClients; iClient++)
     {
         if(IsClientValid(iClient))
         {
-            g_bHasSoundsOn[iClient] = false;
-            g_bAlreadyPlayed = false;
             OnClientCookiesCached(iClient);
         }
     }
-}
-
-// ************************** OnConfigsExecuted ***************************
-
-public void OnConfigsExecuted()
-{
-
 }
 
 // ************************** OnClientsCookiesCached *************************** 
@@ -104,6 +95,7 @@ public void OnClientCookiesCached(int client)
 {
     if(IsClientValid(client))
     {
+        g_bHasSoundsOn[client] = false;
         char cBuffer[8];
         GetClientCookie(client, g_hSankSounds_Cookie, cBuffer, sizeof(cBuffer));
 
@@ -111,10 +103,10 @@ public void OnClientCookiesCached(int client)
         {
             g_bHasSoundsOn[client] = true;
         }
-        else if(StrEqual(cBuffer, "0", false))
-        {
-            g_bHasSoundsOn[client] = false;
-        }
+        //else if(StrEqual(cBuffer, "0", false))
+        //{
+        //    g_bHasSoundsOn[client] = false;
+        //}
     }
 }
 
