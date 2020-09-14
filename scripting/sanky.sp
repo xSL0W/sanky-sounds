@@ -6,6 +6,7 @@
 #include <clientprefs>
 #include <basecomm>
 
+
 #pragma semicolon 1;
 #pragma newdecls required;
 
@@ -16,28 +17,29 @@ public Plugin myinfo =
 	name = "Sanky Sounds",
 	author = "xSLOW",
 	description = "Play chat sounds",
-	version = "1.1",
+	version = "1.2",
 	url = "https://steamcommunity.com/profiles/76561193897443537"
 };
 
 // ************************** Variables *************************** 
 
-ConVar g_CvAntiSpam_Time;
-ConVar g_CvAntiSpam_SoundsPerTime;
-ConVar g_CvSankSounds_AccessFlag;
-ConVar g_CvSankSounds_FlagToAvoidAntiSpam;
-ConVar g_CvSankSounds_PlayedSound;
+ConVar  g_CvAntiSpam_Time,
+        g_CvAntiSpam_SoundsPerTime,
+        g_CvSankSounds_AccessFlag,
+        g_CvSankSounds_FlagToAvoidAntiSpam,
+        g_CvSankSounds_PlayedSound;
 
-char g_sSoundName[1024][256], g_sSoundPath[1024][256];
+char    g_sSoundName[1024][256],
+        g_sSoundPath[1024][256];
 
-int g_iSoundsCounter, g_iSoundsPlayed[MAXPLAYERS + 1] = 0;
+int g_iSoundsCounter,
+    g_iSoundsPlayed[MAXPLAYERS + 1] = 0;
 
-Handle g_hAntiSpamTimer[MAXPLAYERS + 1] = null;
-Handle g_hAlreadyPlayedTimer = null;
-Handle g_hSankSounds_Cookie = INVALID_HANDLE;
+Handle  g_hSankSounds_Cookie = INVALID_HANDLE,
+        g_hAntiSpamTimer[MAXPLAYERS + 1] = null;
 
-bool g_bHasSoundsOn[MAXPLAYERS + 1];
-bool g_bAlreadyPlayed;
+bool    g_bHasSoundsOn[MAXPLAYERS + 1] = false,
+        g_bAlreadyPlayed = false;
 
 // ************************** OnPluginStart *************************** 
 
@@ -62,11 +64,12 @@ public void OnPluginStart()
     g_CvSankSounds_FlagToAvoidAntiSpam = CreateConVar("sm_sanksounds_flagtoavoidantispam", "z", "Access to play sank sounds (no restriction)");
     g_CvSankSounds_PlayedSound = CreateConVar("sm_sanksounds_playedsound", "20.0", "Time interval to play sounds");
 
-    g_bAlreadyPlayed = false;
     for(int iClient = 1; iClient <= MaxClients; iClient++)
     {
         if(IsClientValid(iClient))
         {
+            g_iSoundsPlayed[iClient] = 0;
+            g_hAntiSpamTimer[iClient] = null;
             OnClientCookiesCached(iClient);
         }
     }
@@ -82,10 +85,8 @@ public void OnMapStart()
     g_bAlreadyPlayed = false;
     for(int iClient = 1; iClient <= MaxClients; iClient++)
     {
-        if(IsClientValid(iClient))
-        {
-            OnClientCookiesCached(iClient);
-        }
+        g_iSoundsPlayed[iClient] = 0;
+        g_hAntiSpamTimer[iClient] = null;
     }
 }
 
@@ -93,20 +94,15 @@ public void OnMapStart()
 
 public void OnClientCookiesCached(int client)
 {
-    if(IsClientValid(client))
-    {
-        g_bHasSoundsOn[client] = false;
-        char cBuffer[8];
-        GetClientCookie(client, g_hSankSounds_Cookie, cBuffer, sizeof(cBuffer));
+    if(!client) return;
 
-        if(StrEqual(cBuffer, "1", false))
-        {
-            g_bHasSoundsOn[client] = true;
-        }
-        //else if(StrEqual(cBuffer, "0", false))
-        //{
-        //    g_bHasSoundsOn[client] = false;
-        //}
+    g_bHasSoundsOn[client] = false;
+    char cBuffer[8];
+    GetClientCookie(client, g_hSankSounds_Cookie, cBuffer, sizeof(cBuffer));
+
+    if(StrEqual(cBuffer, "1", false))
+    {
+        g_bHasSoundsOn[client] = true;
     }
 }
 
@@ -116,7 +112,9 @@ public void OnClientPostAdminCheck(int client)
 {
     if(IsClientValid(client))
     {
-        OnClientCookiesCached(client);
+        g_iSoundsPlayed[client] = 0;
+        g_hAntiSpamTimer[client] = null;
+        //OnClientCookiesCached(client);
         CreateTimer(30.0, Timer_OpenMenuFirstTime, GetClientUserId(client));
     }
 }
@@ -253,10 +251,11 @@ public Action OnSay(int client, int args)
                                     g_iSoundsPlayed[client]++;
                                     g_bAlreadyPlayed = true;
 
-                                    delete g_hAntiSpamTimer[client];
-                                    delete g_hAlreadyPlayedTimer;
-                                    g_hAntiSpamTimer[client] = CreateTimer(g_CvAntiSpam_Time.FloatValue, Timer_ResetAntiSpam, GetClientUserId(client));
-                                    g_hAlreadyPlayedTimer = CreateTimer(g_CvSankSounds_PlayedSound.FloatValue, Timer_AlreadyPlayed);
+                                    if(g_hAntiSpamTimer[client] != null)
+                                        delete g_hAntiSpamTimer[client];
+
+                                    g_hAntiSpamTimer[client] = CreateTimer(g_CvAntiSpam_Time.FloatValue, Timer_ResetAntiSpam, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+                                    CreateTimer(g_CvSankSounds_PlayedSound.FloatValue, Timer_AlreadyPlayed);
                                 } 
                                 else PrintToChat(client, "* A \x10sound \x07was already\x01 played a while \x04ago.");
                             }
@@ -293,51 +292,48 @@ public Action OnSay(int client, int args)
     return Plugin_Continue;
 }
 
-// ************************** Command_Sanky *************************** 
+
+
+// ************************** Main Menu *************************** 
 
 public Action Command_Sanky(int client, int args) 
 {
     if(IsClientValid(client))
     {
-        ShowMainMenu(client);
+        Menu MainMenu = new Menu(ShowMainMenuHandler, MENU_ACTIONS_DEFAULT);
+        MainMenu.SetTitle("[Sanky Sounds] \nMain menu");
+        MainMenu.AddItem("endis", "Enable/Disable sounds");
+        MainMenu.AddItem("soundlist", "Sound list");
+
+        MainMenu.ExitButton = true;
+        MainMenu.Display(client, 15);
     }
-}
-
-// ************************** Main Menu *************************** 
-
-public void ShowMainMenu(int client)
-{
-    Menu MainMenu = new Menu(ShowMainMenuHandler, MENU_ACTIONS_DEFAULT);
-    MainMenu.SetTitle("[Sanky Sounds] \nMain menu");
-    MainMenu.AddItem("endis", "Enable/Disable sounds");
-    MainMenu.AddItem("soundlist", "Sound list");
-
-    MainMenu.ExitButton = true;
-    MainMenu.Display(client, 15);
+    return Plugin_Handled;
 }
 
 public int ShowMainMenuHandler(Menu MainMenu, MenuAction action, int param1, int param2)
 {
     int client = param1;
 
-    if(IsClientValid(client))
+    switch(action)
     {
-        switch(action)
-	    {
-	    	case MenuAction_Select:
-	    	{
-	    		char info[128];
-	    		MainMenu.GetItem(param2, info, sizeof(info));
-	    		if(StrEqual(info, "endis"))
-	    		{
-                    ShowEnDisMenu(client);
-	    		}
-	    		else if(StrEqual(info, "soundlist"))
-                {
-                    ShowSoundsList(client);
-                }
-	    	}
-	    }
+        case MenuAction_Select:
+        {
+            char info[128];
+            MainMenu.GetItem(param2, info, sizeof(info));
+            if(StrEqual(info, "endis"))
+            {
+                ShowEnDisMenu(client);
+            }
+            else if(StrEqual(info, "soundlist"))
+            {
+                ShowSoundsList(client);
+            }
+        }
+        case MenuAction_End:
+        {
+            delete MainMenu;
+        }
     }
 }
 
@@ -345,45 +341,49 @@ public int ShowMainMenuHandler(Menu MainMenu, MenuAction action, int param1, int
 
 public void ShowEnDisMenu(int client)
 {
-    Menu EnDisMenu = new Menu(EnDisHandler, MENU_ACTIONS_DEFAULT);
+    if(IsClientValid(client))
+    {
+        Menu EnDisMenu = new Menu(EnDisHandler, MENU_ACTIONS_DEFAULT);
 
-    char MenuTitle[128];
-    Format(MenuTitle, sizeof(MenuTitle), "[Sanky Sounds] \nDo you want to enable Chat Sounds?");
-    EnDisMenu.SetTitle(MenuTitle);
+        char MenuTitle[128];
+        Format(MenuTitle, sizeof(MenuTitle), "[Sanky Sounds] \nDo you want to enable Chat Sounds?");
+        EnDisMenu.SetTitle(MenuTitle);
 
-    EnDisMenu.AddItem("Yes", "Yes");
-    EnDisMenu.AddItem("No", "No");
+        EnDisMenu.AddItem("Yes", "Yes");
+        EnDisMenu.AddItem("No", "No");
 
-    EnDisMenu.ExitButton = false;
-    EnDisMenu.Display(client, 15);
+        EnDisMenu.ExitButton = false;
+        EnDisMenu.Display(client, 15);
+    }
 }
 
 public int EnDisHandler(Menu EnDisMenu, MenuAction action, int param1, int param2)
 {
     int client = param1;
 
-    if(IsClientValid(client))
+    switch(action)
     {
-        switch(action)
-	    {
-	    	case MenuAction_Select:
-	    	{
-	    		char info[128];
-	    		EnDisMenu.GetItem(param2, info, sizeof(info));
-	    		if(StrEqual(info, "Yes"))
-	    		{
-                    PrintToChat(client, "* You \x04ENABLED \x01chat sounds");
-                    g_bHasSoundsOn[client] = true;
-                    SetClientCookie(client, g_hSankSounds_Cookie, "1");
-	    		}
-	    		if(StrEqual(info, "No"))
-	    		{
-                    PrintToChat(client, "* You \x02DISABLED \x01chat sounds");
-                    g_bHasSoundsOn[client] = false;
-                    SetClientCookie(client, g_hSankSounds_Cookie, "0");
-                }
-	    	}
-	    }
+        case MenuAction_Select:
+        {
+            char info[128];
+            EnDisMenu.GetItem(param2, info, sizeof(info));
+            if(StrEqual(info, "Yes"))
+            {
+                PrintToChat(client, "* You \x04ENABLED \x01chat sounds");
+                g_bHasSoundsOn[client] = true;
+                SetClientCookie(client, g_hSankSounds_Cookie, "1");
+            }
+            else if(StrEqual(info, "No"))
+            {
+                PrintToChat(client, "* You \x02DISABLED \x01chat sounds");
+                g_bHasSoundsOn[client] = false;
+                SetClientCookie(client, g_hSankSounds_Cookie, "0");
+            }
+        }
+        case MenuAction_End:
+        {
+            delete EnDisMenu;
+        }
     }
 }
 
@@ -391,38 +391,42 @@ public int EnDisHandler(Menu EnDisMenu, MenuAction action, int param1, int param
 
 public void ShowSoundsList(int client)
 {
-    Menu SoundsList = new Menu(ShowSoundsListHandler, MENU_ACTIONS_DEFAULT);
-
-    char MenuTitle[128];
-    Format(MenuTitle, sizeof(MenuTitle), "[Sanky Sounds] \nSounds List\nSounds count: %d", g_iSoundsCounter);
-    SoundsList.SetTitle(MenuTitle);
-    for(int i = 0; i < g_iSoundsCounter; i++)
+    if(IsClientValid(client))
     {
-        SoundsList.AddItem("GoBack", g_sSoundName[i]);
-    }
+        Menu SoundsList = new Menu(ShowSoundsListHandler, MENU_ACTIONS_DEFAULT);
 
-    SoundsList.ExitButton = true;
-    SoundsList.Display(client, 15);
+        char MenuTitle[128];
+        Format(MenuTitle, sizeof(MenuTitle), "[Sanky Sounds] \nSounds List\nSounds count: %d", g_iSoundsCounter);
+        SoundsList.SetTitle(MenuTitle);
+        for(int i = 0; i < g_iSoundsCounter; i++)
+        {
+            SoundsList.AddItem("GoBack", g_sSoundName[i]);
+        }
+
+        SoundsList.ExitButton = true;
+        SoundsList.Display(client, 15);
+    }
 }
 
 public int ShowSoundsListHandler(Menu SoundsList, MenuAction action, int param1, int param2)
 {
     int client = param1;
 
-    if(IsClientValid(client))
+    switch(action)
     {
-        switch(action)
-	    {
-	    	case MenuAction_Select:
-	    	{
-	    		char info[128];
-	    		SoundsList.GetItem(param2, info, sizeof(info));
-	    		if(StrEqual(info, "GoBack"))
-	    		{
-                    ShowSoundsList(client);
-	    		}
-	    	}
-	    }
+        case MenuAction_Select:
+        {
+            char info[128];
+            SoundsList.GetItem(param2, info, sizeof(info));
+            if(StrEqual(info, "GoBack"))
+            {
+                ShowSoundsList(client);
+            }
+        }
+        case MenuAction_End:
+        {
+            delete SoundsList;
+        }
     }
 }
 
@@ -430,7 +434,6 @@ public int ShowSoundsListHandler(Menu SoundsList, MenuAction action, int param1,
 
 public Action Timer_AlreadyPlayed(Handle timer)
 {
-    g_hAlreadyPlayedTimer = null;
     g_bAlreadyPlayed = false;
 }
 
@@ -440,8 +443,8 @@ public Action Timer_AlreadyPlayed(Handle timer)
 public Action Timer_ResetAntiSpam(Handle timer, any userid)
 {
     int client = GetClientOfUserId(userid);
-    g_hAntiSpamTimer[client] = null;
     g_iSoundsPlayed[client] = 0;
+    g_hAntiSpamTimer[client] = null;
 }
 
 // ************************** Small functions & stuff ***************************
